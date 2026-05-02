@@ -4,13 +4,10 @@ import openpyxl
 from openpyxl import load_workbook
 from copy import copy
 
-INPUT_FILE = r'c:\Users\USER\Desktop\Coding Projects\Automated Quotations\excel_inputs_files\Standard Decora Door Prices Gefalzt.xlsx'
-OUTPUT_DIR = r'c:\Users\USER\Desktop\Coding Projects\Automated Quotations\excel_output_files'
+TURBLATTER_ZEITLOS_EXCEL_FILE = r'c:\Users\USER\Desktop\Coding Projects\Automated Quotations\excel_inputs_files\turblatter\turblatter_zeitlos.xlsx'
+OUTPUT_DIR = r'c:\Users\USER\Desktop\Coding Projects\Automated Quotations\excel_output_files\turblatt'
 
 os.makedirs(OUTPUT_DIR, exist_ok=True)
-
-wb_src = load_workbook(INPUT_FILE)
-ws_src = wb_src.active
 
 
 def safe_filename(name):
@@ -27,42 +24,57 @@ def copy_cell(src_cell, dst_cell):
         dst_cell.alignment = copy(src_cell.alignment)
 
 
-header_row = list(ws_src.iter_rows(min_row=1, max_row=1))[0]
+wb_src = load_workbook(TURBLATTER_ZEITLOS_EXCEL_FILE)
+code_sheets = [name for name in wb_src.sheetnames if 'code' in name]
 
-# Group data rows by door name (column B = Oberflache)
+# Collect all unique doors (id -> name) from the first code sheet
+first_ws = wb_src[code_sheets[0]]
 doors = {}
-for row in ws_src.iter_rows(min_row=2, max_row=ws_src.max_row):
-    door_name = row[1].value  # column B
-    if door_name:
-        if door_name not in doors:
-            doors[door_name] = []
-        doors[door_name].append(row)
+for row in first_ws.iter_rows(min_row=2, max_row=first_ws.max_row):
+    door_id = row[1].value
+    door_name = row[2].value
+    if door_id is not None and door_id not in doors:
+        doors[door_id] = door_name
 
-print(f"Found {len(doors)} doors. Writing files...")
+print(f"Found {len(doors)} doors across {len(code_sheets)} sheets. Writing files...")
 
-for door_name, rows in doors.items():
+for door_id, door_name in doors.items():
     wb_new = openpyxl.Workbook()
     ws_new = wb_new.active
-    ws_new.title = "door_leaf_prices_full"
+    ws_new.title = safe_filename(door_name)
 
-    # Copy header
-    for col_idx, src_cell in enumerate(header_row, 1):
-        dst_cell = ws_new.cell(row=1, column=col_idx)
-        copy_cell(src_cell, dst_cell)
+    current_row = 1
 
-    # Copy door rows
-    for dst_row_idx, src_row in enumerate(rows, 2):
-        for col_idx, src_cell in enumerate(src_row, 1):
-            dst_cell = ws_new.cell(row=dst_row_idx, column=col_idx)
-            copy_cell(src_cell, dst_cell)
+    for sheet_name in code_sheets:
+        ws_src = wb_src[sheet_name]
 
-    # Copy column widths
-    for col_letter, col_dim in ws_src.column_dimensions.items():
+        # Section label
+        ws_new.cell(row=current_row, column=1).value = sheet_name
+        current_row += 1
+
+        # Header
+        header_row = list(ws_src.iter_rows(min_row=1, max_row=1))[0]
+        for col_idx, src_cell in enumerate(header_row, 1):
+            copy_cell(src_cell, ws_new.cell(row=current_row, column=col_idx))
+        current_row += 1
+
+        # Door rows
+        for row in ws_src.iter_rows(min_row=2, max_row=ws_src.max_row):
+            if row[1].value == door_id:
+                for col_idx, src_cell in enumerate(row, 1):
+                    copy_cell(src_cell, ws_new.cell(row=current_row, column=col_idx))
+                current_row += 1
+
+        # Blank row between sections
+        current_row += 1
+
+    # Copy column widths from first code sheet
+    for col_letter, col_dim in wb_src[code_sheets[0]].column_dimensions.items():
         ws_new.column_dimensions[col_letter].width = col_dim.width
 
-    filename = safe_filename(door_name) + ".xlsx"
-    filepath = os.path.join(OUTPUT_DIR, filename)
-    wb_new.save(filepath)
+    filename = f"{door_id}_{safe_filename(door_name)}.xlsx"
+    wb_new.save(os.path.join(OUTPUT_DIR, filename))
     print(f"  Saved: {filename}")
 
+wb_src.close()
 print(f"\nDone. {len(doors)} files written to {OUTPUT_DIR}")
